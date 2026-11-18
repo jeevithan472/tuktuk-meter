@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>TukMeter Trinco LIVE — Trincomalee Three-Wheeler GPS Meter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    @keyframes radar-pulse {
+      0% { transform: scale(0.95); opacity: 0.7; }
+      70% { transform: scale(2.1); opacity: 0; }
+      100% { transform: scale(2.1); opacity: 0; }
+    }
+    .pulse-ring {
+      animation: radar-pulse 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+    /* Smooth accordion transition */
+    .drawer-content {
+      transition: max-height 0.28s ease-out, opacity 0.2s ease-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col items-center justify-between sm:py-6 selection:bg-amber-400/30">
+
+  <!-- Non-intrusive Toast Notification -->
+  <div id="toast-box" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none"></div>
+
+  <!-- Main Mobile App Shell (Centered max-w-md like PickMe Driver App) -->
+  <div class="w-full max-w-md min-h-screen sm:min-h-[760px] bg-slate-900 sm:rounded-[2rem] sm:border sm:border-slate-800 shadow-2xl shadow-black flex flex-col justify-between overflow-hidden relative">
+
+    <!-- TOP BAR: PickMe-style Header & Live GPS / Demo Toggle -->
+    <header class="px-5 pt-5 pb-3 bg-slate-950/70 border-b border-slate-800/80">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-extrabold text-lg shadow-md shadow-amber-400/20">
+            🛺
+          </div>
+          <div>
+            <h1 class="text-base font-extrabold tracking-tight text-white leading-none">TukMeter Trinco <span class="text-amber-400">LIVE</span></h1>
+            <p id="gps-accuracy-label" class="text-[11px] text-slate-400 mt-1 font-mono">Trincomalee • Eastern Province</p>
+          </div>
+        </div>
+
+        <!-- Desk Demo Simulation Toggle -->
+        <button id="btn-demo-toggle" type="button"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border border-slate-700 bg-slate-800/90 text-slate-300 hover:border-amber-400/60 transition active:scale-95">
+          <span id="demo-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="demo-label">Demo Ride</span>
+        </button>
+      </div>
+
+      <!-- Trincomalee Route Selector Bar (Visible when Demo Ride is active) -->
+      <div id="demo-route-bar" class="hidden mt-3 p-2.5 rounded-2xl bg-amber-400/10 border border-amber-400/30">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] font-extrabold uppercase tracking-wider text-amber-300">Trincomalee Test Route</span>
+          <span id="demo-route-target" class="text-[10px] font-mono text-amber-200/80">Target: 4.5 km</span>
+        </div>
+        <select id="demo-route-select"
+          class="w-full rounded-xl bg-slate-950 border border-amber-400/30 px-2.5 py-2 text-xs font-semibold text-white focus:outline-none focus:border-amber-400">
+          <option value="uppuveli">Trinco Clock Tower → Uppuveli Beach (~4.5 km)</option>
+          <option value="nilaveli">Trinco Railway Station → Nilaveli Beach (~14.5 km)</option>
+          <option value="pigeon">Fort Frederick / Koneswaram → Pigeon Island Jetty (~16.0 km)</option>
+          <option value="chinabay">Trinco Bus Stand → China Bay Airport (~9.5 km)</option>
+        </select>
+      </div>
+
+      <!-- Live Status Pill & Speedometer Strip -->
+      <div class="mt-3 flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl px-3.5 py-2.5">
+        <div class="flex items-center gap-2.5">
+          <span class="relative flex h-3 w-3">
+            <span id="status-pulse" class="pulse-ring absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span id="status-dot" class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <span id="status-text" class="text-xs font-extrabold tracking-wider uppercase text-emerald-400">IDLE • READY</span>
+        </div>
+
+        <div class="flex items-center gap-1.5 font-mono text-xs font-bold text-slate-300 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+          <span id="live-speed">0</span>
+          <span class="text-[10px] text-slate-500">km/h</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- CENTER STAGE: Digital Fare Meter Display -->
+    <main class="flex-1 flex flex-col justify-between px-5 py-5">
+
+      <!-- Giant Glanceable Fare Screen -->
+      <div class="my-auto py-6 px-4 rounded-3xl bg-gradient-to-b from-slate-950 to-slate-900/90 border border-slate-800/90 shadow-inner text-center relative">
+        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/20 text-amber-400 text-[11px] font-bold uppercase tracking-widest mb-2">
+          Total Customer Fare
+        </div>
+
+        <div class="flex items-baseline justify-center gap-1.5 my-1">
+          <span class="text-2xl font-bold text-slate-400">Rs.</span>
+          <span id="display-fare" class="text-6xl font-mono font-extrabold tracking-tight text-white">110.00</span>
+        </div>
+
+        <p id="fare-sub-note" class="text-xs text-slate-400 mt-2">
+          Includes 1st km flag-fall (Rs. 110)
+        </p>
+
+        <!-- 3-Column Telemetry Bar -->
+        <div class="grid grid-cols-3 gap-2 mt-6 pt-5 border-t border-slate-800/80">
+          <div class="bg-slate-900/90 rounded-2xl p-2.5 border border-slate-800/70">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Distance</div>
+            <div class="text-base font-mono font-extrabold text-white mt-0.5"><span id="display-distance">0.00</span> <span class="text-xs font-normal text-slate-400">km</span></div>
+          </div>
+
+          <div class="bg-slate-900/90 rounded-2xl p-2.5 border border-slate-800/70">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Duration / Wait</div>
+            <div class="text-base font-mono font-extrabold text-white mt-0.5">
+              <span id="display-duration">00:00</span>
+            </div>
+            <div id="display-wait-badge" class="text-[10px] font-mono text-amber-400 mt-0.5">Wait: 0m</div>
+          </div>
+
+          <div class="bg-slate-900/90 rounded-2xl p-2.5 border border-slate-800/70">
+            <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Est. Petrol</div>
+            <div class="text-base font-mono font-extrabold text-rose-400 mt-0.5">Rs. <span id="display-petrol-cost">0</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COLLAPSIBLE DRAWER: Rates & Petrol Settings (Hidden by default) -->
+      <div class="mt-4">
+        <button id="btn-toggle-settings" type="button"
+          class="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 text-xs font-bold text-slate-300 transition">
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Rates &amp; Petrol
+          </span>
+          <span class="flex items-center gap-1.5 text-slate-400 font-mono text-[11px]">
+            <span id="settings-summary-tag">Rs.110 / Rs.90</span>
+            <svg id="settings-chevron" class="w-4 h-4 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </span>
+        </button>
+
+        <!-- Hidden Settings Panel -->
+        <div id="settings-drawer" class="hidden mt-2 p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+          <div class="grid grid-cols-3 gap-2.5">
+            <div>
+              <label class="block text-[10px] font-semibold uppercase text-slate-400 mb-1">1st km (Rs.)</label>
+              <input id="cfg-base-fare" type="number" value="110" min="0" step="10"
+                class="w-full rounded-xl bg-slate-900 border border-slate-700 px-2.5 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-400" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Next km (Rs.)</label>
+              <input id="cfg-per-km" type="number" value="90" min="0" step="5"
+                class="w-full rounded-xl bg-slate-900 border border-slate-700 px-2.5 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-400" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Wait (Rs/m)</label>
+              <input id="cfg-wait-rate" type="number" value="5" min="0" step="1"
+                class="w-full rounded-xl bg-slate-900 border border-slate-700 px-2.5 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-400" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-800/80">
+            <div>
+              <label class="block text-[10px] font-semibold uppercase text-emerald-400 mb-1">Petrol 92 (Rs./L)</label>
+              <input id="cfg-petrol-price" type="number" value="424" min="1" step="1"
+                class="w-full rounded-xl bg-slate-900 border border-slate-700 px-2.5 py-2 text-xs font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-400" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold uppercase text-slate-400 mb-1">Tuk Mileage (km/L)</label>
+              <input id="cfg-mileage" type="number" value="26" min="5" max="60" step="1"
+                class="w-full rounded-xl bg-slate-900 border border-slate-700 px-2.5 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-400" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- BOTTOM CONTROLS: Big Thumb-Friendly Action Buttons -->
+    <footer class="p-5 pt-2 bg-slate-900">
+      <!-- State 1: Idle -> START HIRE -->
+      <div id="controls-idle">
+        <button id="btn-start-hire" type="button"
+          class="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-extrabold text-base tracking-wide uppercase shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          START HIRE
+        </button>
+      </div>
+
+      <!-- State 2: Active / Paused -> Secondary Pause/Resume + Primary END HIRE -->
+      <div id="controls-active" class="hidden flex flex-col gap-2.5">
+        <div class="flex justify-center">
+          <button id="btn-pause-wait" type="button"
+            class="px-5 py-2 rounded-full bg-slate-800 hover:bg-slate-700 border border-amber-400/50 text-amber-300 font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 transition active:scale-95">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            <span id="btn-pause-label">Pause</span>
+          </button>
+        </div>
+
+        <button id="btn-end-hire" type="button"
+          class="w-full py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-extrabold text-base tracking-wide uppercase shadow-lg shadow-rose-600/25 flex items-center justify-center gap-2 transition">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+          END HIRE
+        </button>
+      </div>
+    </footer>
+
+    <!-- END-OF-TRIP RECEIPT & DRIVER PROFIT SUMMARY MODAL -->
+    <div id="receipt-modal" class="hidden absolute inset-0 z-40 bg-slate-950/95 backdrop-blur-md p-5 flex flex-col justify-between overflow-y-auto">
+      <div>
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div>
+            <span id="receipt-trip-id" class="text-[11px] font-mono font-bold uppercase tracking-widest text-amber-400">TRINCO #0000</span>
+            <h2 class="text-xl font-extrabold text-white">Passenger Receipt</h2>
+          </div>
+          <span id="receipt-date" class="text-[11px] font-mono text-slate-400"></span>
+        </div>
+
+        <!-- Trincomalee Route Tag -->
+        <div id="rec-route-banner" class="mt-3 px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] font-semibold text-amber-300 flex items-center justify-between">
+          <span id="rec-route-name">Trincomalee Local Hire</span>
+          <span id="rec-total-dist" class="font-mono text-slate-300">0.00 km</span>
+        </div>
+
+        <!-- Customer Fare Breakdown (Safe to show passenger) -->
+        <div class="mt-3 p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-sm">
+          <div class="flex justify-between text-slate-300">
+            <span>Base Flag-fall (1st km)</span>
+            <span id="rec-base" class="font-mono font-bold text-white">Rs. 110.00</span>
+          </div>
+          <div class="flex justify-between text-slate-300">
+            <span>Extra Distance (<span id="rec-extra-km">0.00</span> km)</span>
+            <span id="rec-extra-cost" class="font-mono font-bold text-white">Rs. 0.00</span>
+          </div>
+          <div class="flex justify-between text-slate-300">
+            <span>Waiting Time (<span id="rec-wait-mins">0</span> mins)</span>
+            <span id="rec-wait-cost" class="font-mono font-bold text-white">Rs. 0.00</span>
+          </div>
+          <div class="pt-3 border-t border-slate-800 flex items-baseline justify-between">
+            <span class="text-sm font-extrabold uppercase text-amber-400">Total Fare</span>
+            <span id="rec-total-fare" class="text-2xl font-mono font-extrabold text-white">Rs. 110.00</span>
+          </div>
+        </div>
+
+        <!-- Driver Private Summary (Petrol Burned vs. Net Profit) -->
+        <div class="mt-4 p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-extrabold uppercase tracking-wider text-emerald-400">Driver Private Profit Summary</span>
+            <span class="text-[10px] font-mono text-emerald-300/70">Petrol 92</span>
+          </div>
+          <div class="flex justify-between text-xs text-slate-300 pt-1">
+            <span>Petrol Burned (<span id="rec-petrol-liters">0.00</span> L)</span>
+            <span id="rec-petrol-cost" class="font-mono font-semibold text-rose-400">- Rs. 0.00</span>
+          </div>
+          <div class="flex justify-between items-baseline pt-2 border-t border-emerald-500/20">
+            <span class="text-xs font-bold text-emerald-200">Net Take-Home Profit</span>
+            <span id="rec-net-profit" class="text-lg font-mono font-extrabold text-emerald-400">Rs. 0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Receipt Action Buttons -->
+      <div class="mt-5 space-y-2.5">
+        <button id="btn-copy-receipt" type="button"
+          class="w-full py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-slate-700 flex items-center justify-center gap-2 transition active:scale-[0.98]">
+          Copy WhatsApp Receipt
+        </button>
+        <button id="btn-next-hire" type="button"
+          class="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm uppercase tracking-wider shadow-lg shadow-emerald-500/20 transition active:scale-[0.98]">
+          Reset for Next Hire
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Hidden textarea for safe clipboard copy -->
+  <textarea id="clipboard-buffer" class="sr-only" aria-hidden="true"></textarea>
+
+  <script>
+    (function () {
+      const STORAGE_KEY = 'tukmeter_trinco_rates_v1';
+
+      // Authentic Trincomalee Routes for Desk Demo Mode
+      const TRINCO_ROUTES = {
+        uppuveli: {
+          label: 'Trinco Clock Tower → Uppuveli Beach',
+          targetKm: 4.5,
+          roadNote: 'Trinco-Pulmoddai Rd'
+        },
+        nilaveli: {
+          label: 'Trinco Railway Station → Nilaveli Beach',
+          targetKm: 14.5,
+          roadNote: 'Nilaveli Rd via Sampaltivu'
+        },
+        pigeon: {
+          label: 'Fort Frederick / Koneswaram → Pigeon Island Jetty',
+          targetKm: 16.0,
+          roadNote: 'Konesar Rd → Nilaveli Coast'
+        },
+        chinabay: {
+          label: 'Trinco Bus Stand → China Bay Airport',
+          targetKm: 9.5,
+          roadNote: 'Kandy Rd via Orr’s Hill'
+        }
+      };
+
+      // Meter Configuration & Live Trip State
+      const state = {
+        status: 'IDLE', // 'IDLE' | 'RUNNING' | 'PAUSED' | 'ENDED'
+        demoMode: false,
+        selectedRouteKey: 'uppuveli',
+        tripId: '',
+        // November 2026 Trincomalee Defaults
+        baseFare: 110,      // Rs. for 1st km
+        perKmRate: 90,      // Rs. per km after 1st km
+        waitRate: 5,        // Rs. per minute
+        petrolPrice: 424,   // Rs. per Liter (Ceypetco Petrol 92 Nov 2026)
+        mileage: 26,        // km per Liter for Tuk-Tuk
+        // Telemetry
+        distanceKm: 0,
+        elapsedSeconds: 0,
+        waitingSeconds: 0,
+        currentSpeedKmh: 0,
+        lastCoords: null,
+        watchId: null,
+        timerInterval: null,
+        demoStepCount: 0,
+        wakeLockSentinel: null
+      };
+
+      // DOM Elements
+      const el = {
+        btnDemoToggle: document.getElementById('btn-demo-toggle'),
+        demoDot: document.getElementById('demo-dot'),
+        demoLabel: document.getElementById('demo-label'),
+        demoRouteBar: document.getElementById('demo-route-bar'),
+        demoRouteSelect: document.getElementById('demo-route-select'),
+        demoRouteTarget: document.getElementById('demo-route-target'),
+        gpsAccuracyLabel: document.getElementById('gps-accuracy-label'),
+        statusPulse: document.getElementById('status-pulse'),
+        statusDot: document.getElementById('status-dot'),
+        statusText: document.getElementById('status-text'),
+        liveSpeed: document.getElementById('live-speed'),
+        displayFare: document.getElementById('display-fare'),
+        fareSubNote: document.getElementById('fare-sub-note'),
+        displayDistance: document.getElementById('display-distance'),
+        displayDuration: document.getElementById('display-duration'),
+        displayWaitBadge: document.getElementById('display-wait-badge'),
+        displayPetrolCost: document.getElementById('display-petrol-cost'),
+        // Settings Drawer
+        btnToggleSettings: document.getElementById('btn-toggle-settings'),
+        settingsDrawer: document.getElementById('settings-drawer'),
+        settingsChevron: document.getElementById('settings-chevron'),
+        settingsSummaryTag: document.getElementById('settings-summary-tag'),
+        cfgBaseFare: document.getElementById('cfg-base-fare'),
+        cfgPerKm: document.getElementById('cfg-per-km'),
+        cfgWaitRate: document.getElementById('cfg-wait-rate'),
+        cfgPetrolPrice: document.getElementById('cfg-petrol-price'),
+        cfgMileage: document.getElementById('cfg-mileage'),
+        // Controls
+        controlsIdle: document.getElementById('controls-idle'),
+        controlsActive: document.getElementById('controls-active'),
+        btnStartHire: document.getElementById('btn-start-hire'),
+        btnPauseWait: document.getElementById('btn-pause-wait'),
+        btnPauseLabel: document.getElementById('btn-pause-label'),
+        btnEndHire: document.getElementById('btn-end-hire'),
+        // Receipt Modal
+        receiptModal: document.getElementById('receipt-modal'),
+        receiptTripId: document.getElementById('receipt-trip-id'),
+        receiptDate: document.getElementById('receipt-date'),
+        recRouteName: document.getElementById('rec-route-name'),
+        recTotalDist: document.getElementById('rec-total-dist'),
+        recBase: document.getElementById('rec-base'),
+        recExtraKm: document.getElementById('rec-extra-km'),
+        recExtraCost: document.getElementById('rec-extra-cost'),
+        recWaitMins: document.getElementById('rec-wait-mins'),
+        recWaitCost: document.getElementById('rec-wait-cost'),
+        recTotalFare: document.getElementById('rec-total-fare'),
+        recPetrolLiters: document.getElementById('rec-petrol-liters'),
+        recPetrolCost: document.getElementById('rec-petrol-cost'),
+        recNetProfit: document.getElementById('rec-net-profit'),
+        btnCopyReceipt: document.getElementById('btn-copy-receipt'),
+        btnNextHire: document.getElementById('btn-next-hire'),
+        clipboardBuffer: document.getElementById('clipboard-buffer'),
+        toastBox: document.getElementById('toast-box')
+      };
+
+      // Load saved driver settings from localStorage
+      function loadSavedSettings() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const saved = JSON.parse(raw);
+          if (typeof saved.baseFare === 'number') el.cfgBaseFare.value = saved.baseFare;
+          if (typeof saved.perKmRate === 'number') el.cfgPerKm.value = saved.perKmRate;
+          if (typeof saved.waitRate === 'number') el.cfgWaitRate.value = saved.waitRate;
+          if (typeof saved.petrolPrice === 'number') el.cfgPetrolPrice.value = saved.petrolPrice;
+          if (typeof saved.mileage === 'number') el.cfgMileage.value = saved.mileage;
+        } catch (e) {
+          // Ignore storage read errors
+        }
+      }
+
+      function saveSettingsToStorage() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            baseFare: state.baseFare,
+            perKmRate: state.perKmRate,
+            waitRate: state.waitRate,
+            petrolPrice: state.petrolPrice,
+            mileage: state.mileage
+          }));
+        } catch (e) {
+          // Ignore storage write errors
+        }
+      }
+
+      // Screen Wake Lock so dashboard phone never dims mid-hire
+      async function requestWakeLock() {
+        try {
+          if ('wakeLock' in navigator && !state.wakeLockSentinel) {
+            state.wakeLockSentinel = await navigator.wakeLock.request('screen');
+            state.wakeLockSentinel.addEventListener('release', () => {
+              state.wakeLockSentinel = null;
+            });
+          }
+        } catch (e) {
+          // Wake lock optional on unsupported browsers
+        }
+      }
+
+      function releaseWakeLock() {
+        try {
+          if (state.wakeLockSentinel) {
+            state.wakeLockSentinel.release();
+            state.wakeLockSentinel = null;
+          }
+        } catch (e) {
+          // Ignore release errors
+        }
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && (state.status === 'RUNNING' || state.status === 'PAUSED')) {
+          requestWakeLock();
+        }
+      });
+
+      function showToast(msg) {
+        const toast = document.createElement('div');
+        toast.className = 'px-4 py-2 rounded-full bg-slate-800 border border-amber-400/50 text-xs font-bold text-amber-300 shadow-xl transition-opacity duration-300 text-center';
+        toast.textContent = msg;
+        el.toastBox.innerHTML = '';
+        el.toastBox.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; }, 2400);
+        setTimeout(() => { toast.remove(); }, 2700);
+      }
+
+      /**
+       * Haversine formula to compute distance in km between two lat/lng coordinates
+       */
+      function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+      }
+
+      function formatTime(totalSecs) {
+        const mins = Math.floor(totalSecs / 60).toString().padStart(2, '0');
+        const secs = Math.floor(totalSecs % 60).toString().padStart(2, '0');
+        return `${mins}:${secs}`;
+      }
+
+      /**
+       * Computes Fare, Petrol Cost, and Updates Screen
+       */
+      function calculateAndRender() {
+        const extraKm = Math.max(0, state.distanceKm - 1.0);
+        const extraDistanceCost = extraKm * state.perKmRate;
+        const waitingMinutes = state.waitingSeconds / 60;
+        const waitingCost = waitingMinutes * state.waitRate;
+
+        const totalFare = state.baseFare + extraDistanceCost + waitingCost;
+
+        // Fuel burned & net profit
+        const litersUsed = state.mileage > 0 ? (state.distanceKm / state.mileage) : 0;
+        const petrolCost = litersUsed * state.petrolPrice;
+        const netProfit = totalFare - petrolCost;
+
+        // Render main digital meter
+        el.displayFare.textContent = totalFare.toFixed(2);
+        el.displayDistance.textContent = state.distanceKm.toFixed(2);
+        el.displayDuration.textContent = formatTime(state.elapsedSeconds);
+        el.displayWaitBadge.textContent = `Wait: ${Math.floor(waitingMinutes)}m`;
+        el.displayPetrolCost.textContent = Math.round(petrolCost);
+        el.liveSpeed.textContent = Math.round(state.currentSpeedKmh);
+
+        if (state.distanceKm <= 1) {
+          el.fareSubNote.textContent = `1st km flag-fall active (Rs. ${state.baseFare})`;
+        } else {
+          el.fareSubNote.textContent = `1st km Rs.${state.baseFare} + ${extraKm.toFixed(2)} km @ Rs.${state.perKmRate}/km`;
+        }
+
+        return {
+          extraKm,
+          extraDistanceCost,
+          waitingMinutes,
+          waitingCost,
+          totalFare,
+          litersUsed,
+          petrolCost,
+          netProfit
+        };
+      }
+
+      /**
+       * Updates Status Badge (IDLE, MOVING, WAITING IN TRAFFIC, PAUSED) & Bottom Buttons
+       */
+      function updateStatusUI() {
+        if (state.status === 'IDLE') {
+          el.statusPulse.className = 'pulse-ring absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75';
+          el.statusDot.className = 'relative inline-flex rounded-full h-3 w-3 bg-emerald-500';
+          el.statusText.className = 'text-xs font-extrabold tracking-wider uppercase text-emerald-400';
+          el.statusText.textContent = 'IDLE • READY';
+          el.controlsIdle.classList.remove('hidden');
+          el.controlsActive.classList.add('hidden');
+        } else if (state.status === 'RUNNING') {
+          const isTrafficWait = state.currentSpeedKmh < 3 && state.elapsedSeconds > 1;
+          if (isTrafficWait) {
+            el.statusPulse.className = 'pulse-ring absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75';
+            el.statusDot.className = 'relative inline-flex rounded-full h-3 w-3 bg-amber-400';
+            el.statusText.className = 'text-xs font-extrabold tracking-wider uppercase text-amber-400';
+            el.statusText.textContent = 'WAITING IN TRAFFIC';
+          } else {
+            el.statusPulse.className = 'pulse-ring absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75';
+            el.statusDot.className = 'relative inline-flex rounded-full h-3 w-3 bg-emerald-400';
+            el.statusText.className = 'text-xs font-extrabold tracking-wider uppercase text-emerald-400';
+            el.statusText.textContent = state.demoMode ? 'MOVING • DEMO GPS' : 'MOVING • LIVE GPS';
+          }
+          el.controlsIdle.classList.add('hidden');
+          el.controlsActive.classList.remove('hidden');
+          el.btnPauseLabel.textContent = 'Pause';
+          el.btnPauseWait.className = 'px-5 py-2 rounded-full bg-slate-800 hover:bg-slate-700 border border-amber-400/50 text-amber-300 font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 transition active:scale-95';
+        } else if (state.status === 'PAUSED') {
+          el.statusPulse.className = 'absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-40';
+          el.statusDot.className = 'relative inline-flex rounded-full h-3 w-3 bg-rose-500';
+          el.statusText.className = 'text-xs font-extrabold tracking-wider uppercase text-rose-400';
+          el.statusText.textContent = 'PAUSED';
+          el.btnPauseLabel.textContent = 'Resume';
+          el.btnPauseWait.className = 'px-5 py-2 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400 text-emerald-300 font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 transition active:scale-95';
+        } else if (state.status === 'ENDED') {
+          el.statusText.className = 'text-xs font-extrabold tracking-wider uppercase text-slate-300';
+          el.statusText.textContent = 'TRIP ENDED';
+        }
+      }
+
+      /**
+       * Starts real browser GPS tracking with < 5m jitter filter
+       */
+      function startRealGPS() {
+        if (!('geolocation' in navigator)) {
+          el.gpsAccuracyLabel.textContent = 'GPS Unsupported • Use Demo Ride';
+          showToast('GPS not supported on this device. Switching to Demo Ride.');
+          enableDemoMode(true);
+          return;
+        }
+
+        el.gpsAccuracyLabel.textContent = 'Acquiring Satellites • Trincomalee';
+        state.watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            const { latitude, longitude, accuracy, speed } = pos.coords;
+            el.gpsAccuracyLabel.textContent = `Trincomalee • GPS ±${Math.round(accuracy)}m`;
+
+            if (state.status !== 'RUNNING') return;
+
+            let speedKmh = (speed !== null && speed >= 0) ? speed * 3.6 : 0;
+
+            if (state.lastCoords) {
+              const deltaKm = haversineKm(
+                state.lastCoords.lat,
+                state.lastCoords.lng,
+                latitude,
+                longitude
+              );
+              // Filter out GPS jitter (< 5 meters = 0.005 km) when stationary
+              if (deltaKm >= 0.005 && accuracy <= 65) {
+                state.distanceKm += deltaKm;
+                if (speed === null) {
+                  const dtHours = (pos.timestamp - state.lastCoords.time) / 3600000;
+                  if (dtHours > 0) speedKmh = deltaKm / dtHours;
+                }
+              }
+            }
+
+            state.currentSpeedKmh = speedKmh;
+            state.lastCoords = { lat: latitude, lng: longitude, time: pos.timestamp };
+            updateStatusUI();
+            calculateAndRender();
+          },
+          () => {
+            el.gpsAccuracyLabel.textContent = 'Trincomalee • GPS Blocked';
+            if (!state.demoMode) {
+              showToast('Location permission denied. Tap "Demo Ride" to test.');
+            }
+          },
+          { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+        );
+      }
+
+      function stopRealGPS() {
+        if (state.watchId !== null) {
+          navigator.geolocation.clearWatch(state.watchId);
+          state.watchId = null;
+        }
+      }
+
+      /**
+       * 1-Second Master Tick (Handles Elapsed Time, Auto-Waiting, and Trincomalee Route Simulation)
+       */
+      function startTicker() {
+        stopTicker();
+        state.timerInterval = setInterval(() => {
+          if (state.status !== 'RUNNING' && state.status !== 'PAUSED') return;
+
+          state.elapsedSeconds += 1;
+
+          // Trincomalee Desk Demo Simulation Logic
+          if (state.demoMode && state.status === 'RUNNING') {
+            const route = TRINCO_ROUTES[state.selectedRouteKey] || TRINCO_ROUTES.uppuveli;
+            state.demoStepCount += 1;
+
+            if (state.distanceKm >= route.targetKm) {
+              // Arrived at Trincomalee destination landmark
+              state.currentSpeedKmh = 0;
+              if (state.demoStepCount % 10 === 0) {
+                showToast(`Arrived at destination (${route.targetKm} km) — Tap END HIRE`);
+              }
+            } else {
+              // Every 24 seconds, simulate slowing/stopping at Orr's Hill / Uppuveli junction
+              const cycle = state.demoStepCount % 24;
+              if (cycle >= 17) {
+                state.currentSpeedKmh = 0; // Stopped at junction -> waiting ticks automatically
+              } else {
+                // Cruise along Trinco-Pulmoddai / Nilaveli Rd at 30–38 km/h
+                const simSpeed = 34 + Math.sin(state.demoStepCount * 0.45) * 4;
+                state.currentSpeedKmh = simSpeed;
+                state.distanceKm = Math.min(route.targetKm, state.distanceKm + (simSpeed / 3600));
+              }
+            }
+          } else if (state.status === 'PAUSED') {
+            state.currentSpeedKmh = 0;
+          }
+
+          // Waiting charge triggers if manually PAUSED or speed < 3 km/h during active trip
+          if (state.status === 'PAUSED' || (state.status === 'RUNNING' && state.currentSpeedKmh < 3)) {
+            state.waitingSeconds += 1;
+          }
+
+          updateStatusUI();
+          calculateAndRender();
+        }, 1000);
+      }
+
+      function stopTicker() {
+        if (state.timerInterval) {
+          clearInterval(state.timerInterval);
+          state.timerInterval = null;
+        }
+      }
+
+      function updateSelectedDemoRoute() {
+        state.selectedRouteKey = el.demoRouteSelect.value;
+        const route = TRINCO_ROUTES[state.selectedRouteKey] || TRINCO_ROUTES.uppuveli;
+        el.demoRouteTarget.textContent = `Target: ${route.targetKm.toFixed(1)} km`;
+        if (state.demoMode) {
+          el.gpsAccuracyLabel.textContent = `Demo • ${route.roadNote}`;
+        }
+      }
+
+      function enableDemoMode(forceOn) {
+        state.demoMode = typeof forceOn === 'boolean' ? forceOn : !state.demoMode;
+        if (state.demoMode) {
+          stopRealGPS();
+          el.btnDemoToggle.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border border-amber-400 bg-amber-400/15 text-amber-300 transition active:scale-95';
+          el.demoDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+          el.demoLabel.textContent = 'Demo ON';
+          el.demoRouteBar.classList.remove('hidden');
+          updateSelectedDemoRoute();
+          showToast('Trincomalee Demo Ride ON — Tap START HIRE');
+        } else {
+          el.btnDemoToggle.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border border-slate-700 bg-slate-800/90 text-slate-300 hover:border-amber-400/60 transition active:scale-95';
+          el.demoDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+          el.demoLabel.textContent = 'Demo Ride';
+          el.demoRouteBar.classList.add('hidden');
+          el.gpsAccuracyLabel.textContent = 'Trincomalee • Eastern Province';
+          if (state.status === 'RUNNING') startRealGPS();
+        }
+        updateStatusUI();
+      }
+
+      // Sync Settings Inputs & Persist to localStorage
+      function syncSettings() {
+        state.baseFare = Math.max(0, parseFloat(el.cfgBaseFare.value) || 0);
+        state.perKmRate = Math.max(0, parseFloat(el.cfgPerKm.value) || 0);
+        state.waitRate = Math.max(0, parseFloat(el.cfgWaitRate.value) || 0);
+        state.petrolPrice = Math.max(1, parseFloat(el.cfgPetrolPrice.value) || 424);
+        state.mileage = Math.max(1, parseFloat(el.cfgMileage.value) || 26);
+        el.settingsSummaryTag.textContent = `Rs.${state.baseFare} / Rs.${state.perKmRate}`;
+        saveSettingsToStorage();
+        calculateAndRender();
+      }
+
+      // Event Bindings
+      el.btnDemoToggle.addEventListener('click', () => enableDemoMode());
+      el.demoRouteSelect.addEventListener('change', updateSelectedDemoRoute);
+
+      el.btnToggleSettings.addEventListener('click', () => {
+        const isHidden = el.settingsDrawer.classList.toggle('hidden');
+        el.settingsChevron.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+      });
+
+      [el.cfgBaseFare, el.cfgPerKm, el.cfgWaitRate, el.cfgPetrolPrice, el.cfgMileage].forEach(inp => {
+        inp.addEventListener('input', syncSettings);
+      });
+
+      // START HIRE
+      el.btnStartHire.addEventListener('click', () => {
+        state.status = 'RUNNING';
+        state.lastCoords = null;
+        state.demoStepCount = 0;
+        state.tripId = `TRINCO #${Math.floor(1000 + Math.random() * 9000)}`;
+        requestWakeLock();
+        if (!state.demoMode) {
+          startRealGPS();
+        }
+        startTicker();
+        updateStatusUI();
+        calculateAndRender();
+      });
+
+      // PAUSE / RESUME
+      el.btnPauseWait.addEventListener('click', () => {
+        if (state.status === 'RUNNING') {
+          state.status = 'PAUSED';
+          state.currentSpeedKmh = 0;
+        } else if (state.status === 'PAUSED') {
+          state.status = 'RUNNING';
+          state.lastCoords = null;
+        }
+        updateStatusUI();
+        calculateAndRender();
+      });
+
+      // END HIRE -> Show Receipt Modal
+      el.btnEndHire.addEventListener('click', () => {
+        state.status = 'ENDED';
+        state.currentSpeedKmh = 0;
+        stopTicker();
+        stopRealGPS();
+        releaseWakeLock();
+        updateStatusUI();
+
+        const summary = calculateAndRender();
+        const now = new Date();
+        const routeObj = state.demoMode
+          ? (TRINCO_ROUTES[state.selectedRouteKey] || TRINCO_ROUTES.uppuveli)
+          : { label: 'Trincomalee Live GPS Hire' };
+
+        el.receiptTripId.textContent = state.tripId || 'TRINCO #1024';
+        el.receiptDate.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        el.recRouteName.textContent = routeObj.label;
+        el.recTotalDist.textContent = `${state.distanceKm.toFixed(2)} km`;
+
+        el.recBase.textContent = `Rs. ${state.baseFare.toFixed(2)}`;
+        el.recExtraKm.textContent = summary.extraKm.toFixed(2);
+        el.recExtraCost.textContent = `Rs. ${summary.extraDistanceCost.toFixed(2)}`;
+        el.recWaitMins.textContent = Math.floor(summary.waitingMinutes);
+        el.recWaitCost.textContent = `Rs. ${summary.waitingCost.toFixed(2)}`;
+        el.recTotalFare.textContent = `Rs. ${summary.totalFare.toFixed(2)}`;
+
+        el.recPetrolLiters.textContent = summary.litersUsed.toFixed(2);
+        el.recPetrolCost.textContent = `- Rs. ${summary.petrolCost.toFixed(2)}`;
+        el.recNetProfit.textContent = `Rs. ${summary.netProfit.toFixed(2)}`;
+
+        el.receiptModal.classList.remove('hidden');
+      });
+
+      // Copy WhatsApp Receipt Text
+      el.btnCopyReceipt.addEventListener('click', () => {
+        const text = [
+          `🛺 *TUKMETER TRINCO — HIRE RECEIPT*`,
+          `Trip ID: ${el.receiptTripId.textContent}`,
+          `Route: ${el.recRouteName.textContent}`,
+          `Distance: ${state.distanceKm.toFixed(2)} km`,
+          `1st km Base: Rs. ${state.baseFare.toFixed(2)}`,
+          `Extra Distance: ${el.recExtraCost.textContent}`,
+          `Waiting (${el.recWaitMins.textContent}m): ${el.recWaitCost.textContent}`,
+          `------------------------`,
+          `*TOTAL FARE: ${el.recTotalFare.textContent}*`
+        ].join('\n');
+
+        el.clipboardBuffer.value = text;
+        el.clipboardBuffer.select();
+        document.execCommand('copy');
+        showToast('WhatsApp receipt copied!');
+      });
+
+      // Reset for Next Hire
+      el.btnNextHire.addEventListener('click', () => {
+        state.status = 'IDLE';
+        state.distanceKm = 0;
+        state.elapsedSeconds = 0;
+        state.waitingSeconds = 0;
+        state.currentSpeedKmh = 0;
+        state.lastCoords = null;
+        el.receiptModal.classList.add('hidden');
+        updateStatusUI();
+        calculateAndRender();
+      });
+
+      // Initial boot
+      loadSavedSettings();
+      syncSettings();
+      updateStatusUI();
+    })();
+  </script>
+</body>
+</html>
